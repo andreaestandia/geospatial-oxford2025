@@ -1,9 +1,11 @@
 # Geospatial data and methods in R
 ### Mbiol Year 3 | University of Oxford
 
-#### Convenors: Dr. Andrea Estandia (andrea.estandia@biology.ox.ac.uk) & Dr. Nilo Merino Recalde(nilo.recalde@biology.ox.ac.uk).
+**Convenors:**  
+- Dr. Andrea Estandia (<andrea.estandia@biology.ox.ac.uk>)  
+- Dr. Nilo Merino Recalde (<nilo.recalde@biology.ox.ac.uk>)
 
-#### Date: 5th November 2025
+**Date:** 5th November 2025
 
 ---
 
