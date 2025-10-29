@@ -374,7 +374,7 @@ species_data <- bind_cols(
 cat("Final dataset rows:", nrow(species_data), "\n")
 head(species_data)
 # Save processed data
-write_csv(species_data, file.path("data", "processed", "coffea_arabica_processed.csv"))
+write_csv(species_data, here(file.path("data", "processed", "coffea_arabica_processed.csv")))
 ```
 
 
@@ -671,7 +671,7 @@ pretty_map <- ggplot() +
 # Print the cropped map
 print(pretty_map)
 
-ggsave(file.path("outputs", "maps", "pretty_map.pdf"), 
+ggsave(here(file.path("outputs", "maps", "pretty_map.pdf")), 
        pretty_map, 
        width = 7, height = 6, dpi = 300, bg = "white")
 ```
