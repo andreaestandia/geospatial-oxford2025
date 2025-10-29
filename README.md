@@ -13,7 +13,7 @@ The objective of this practical is to learn how to work with geospatial data in 
 
 We provide a Quarto file with code and instructions for the assignment. The practical is self-contained and provides all the information you need then to tackle the assignment described below for the assessed coursework.
 
-The Quarto file for the practical can be found in this repository or here: https://canvas.ox.ac.uk/courses/296021/modules#module_503924
+The Quarto file `practical.qmd` for the practical can be found in this repository or here: https://canvas.ox.ac.uk/courses/296021/modules#module_503924
 
 Don't forget to download the species distribution from the `data/raw` folder or from `Canvas`.
 
