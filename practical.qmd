@@ -70,7 +70,7 @@ library(sysfonts)
 library(showtext)
 
 # Create folders
-folders <- c("data/raw", "data/processed", "outputs/maps", "outputs/models")
+folders <- c("data/raw", "data/processed", "outputs/maps")
 for (f in folders) {
   dir.create(here(f), recursive = TRUE, showWarnings = FALSE)
 }
@@ -82,7 +82,7 @@ for (f in folders) {
 
 ## 2.1 Vector: points, polygons
 
-Create example sampling sites and convert to an `sf` object.
+We're going to learn what type of objects we expect when doing geospatial analysis. Let's start by creating example sampling sites and convert to a spatial object.
 
 ```{r vectors}
 sampling_sites <- tibble(
@@ -93,6 +93,9 @@ sampling_sites <- tibble(
 )
 
 sites_vect <- vect(sampling_sites, geom = c("lon", "lat"), crs = "EPSG:4326")
+
+class(sites_vect)
+
 print(sites_vect)
 ```
 
@@ -108,6 +111,9 @@ world <- vect(world_sf)
 # Filter UK and transform
 uk <- world[world$name == "United Kingdom", ]
 uk <- project(uk, "EPSG:4326")
+
+print(uk)
+
 print(uk)
 
 plot(uk, col = "#fdde9cff")
@@ -115,6 +121,8 @@ plot(sites_vect, add = TRUE, pch = 16, col = "red", cex = 1.5)
 ```
 
 **Task 2**: Explore the `uk` object and get familiarised with each component.
+
+You can see that both points and polygons are the same class of object: vectors. 
 
 ## 2.2 CRS — why it matters
 
@@ -139,25 +147,24 @@ cambridge <- vect(data.frame(lon = 0.1218, lat = 52.2053),
 
 # Calculate distance in WGS84 (lat/lon) - uses great circle distance
 dist_wgs84 <- distance(oxford, cambridge)
-cat("Distance in WGS84 (metres):", round(dist_wgs84), "\n")
+round(dist_wgs84)
 
 # Transform to British National Grid (projected CRS, meters)
 oxford_bng <- project(oxford, "EPSG:27700")
 cambridge_bng <- project(cambridge, "EPSG:27700")
 dist_bng <- distance(oxford_bng, cambridge_bng)
-cat("Distance in BNG (metres):", round(dist_bng), "\n")
+round(dist_bng)
 
 # Transform to Web Mercator (commonly used for web maps)
 oxford_merc <- project(oxford, "EPSG:3857")
 cambridge_merc <- project(cambridge, "EPSG:3857")
 dist_merc <- distance(oxford_merc, cambridge_merc)
-cat("Distance in Web Mercator (metres):", round(dist_merc), "\n")
+round(dist_merc)
 
 # Show coordinate values in different systems
-cat("\nOxford coordinates:\n")
-cat("  WGS84 (lon, lat):", crds(oxford), "\n")
-cat("  BNG (easting, northing):", crds(oxford_bng), "\n")
-cat("  Web Mercator (x, y):", crds(oxford_merc), "\n")
+crds(oxford)
+crds(oxford_bng)
+crds(oxford_merc)
 ```
 
 **Question**: Which CRS gives the most accurate distance for UK locations? Why?

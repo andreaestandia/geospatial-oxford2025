@@ -11,8 +11,10 @@
 
 The objective of this practical is to learn how to work with geospatial data in R. You will download species locality data from the Global Biodiversity Information Facility, GBIF (https://www.gbif.org), and environmental data from Worldclim https://www.worldclim.org) and plot them on a map. You will then run models to predict the distribution of the species based on climatic variables. Finally, you will use your model to predict the distribution of the species 70 years from now.
 
-We provide an Quarto file with code and instructions for the assignment. The practical is self-contained and provides all the information you need then to tackle the assignment described below for the assessed coursework.
+We provide a Quarto file with code and instructions for the assignment. The practical is self-contained and provides all the information you need then to tackle the assignment described below for the assessed coursework.
 
 The Quarto file for the practical can be found in this repository or here: https://canvas.ox.ac.uk/courses/296021/modules#module_503924
+
+Don't forget to download the species distribution from the `data/raw` folder or from `Canvas`.
 
 Work through this and make sure you understand all the steps, ask a demonstrator if you have any questions. Then you are ready to tackle the assignment.
