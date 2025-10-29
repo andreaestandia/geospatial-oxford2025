@@ -28,7 +28,7 @@ Predict the future distribution of each species using CMIP6 data for future clim
 
 - Write your report using Quarto
 - Submit both your `.Qmd` file containing the code and the `.html` produced by knitting the document
-- Anyone unsure about how to produce a report using Quarto should run through the material on canvas and ask demonstrators. See: MT 60784; reproducible research documents with R and Quarto ([https://canvas.ox.ac.uk/courses/273641](https://canvas.ox.ac.uk/courses/273641/modules#module_452046))
+- Anyone unsure about how to produce a report using Quarto should run through the material on canvas and ask demonstrators. See: MT 60784.
 
 **Coding Guidelines:**
 - Aim to write your code so that it would run for a new pair of species simply by changing the input data at the start, i.e. using general rather than specific coding
@@ -43,5 +43,5 @@ Predict the future distribution of each species using CMIP6 data for future clim
 
 The marking scheme for computer assignments is on page 32 of the conventions. It is weighted equally between how well your code runs and the quality of the presentation of the report.
 
-More information on computer skills assignments: https://canvas.ox.ac.uk/courses/273637/pages/computer-skills-assignments?module_item_id=2667596
+More information on computer skills assignments: https://canvas.ox.ac.uk/courses/296021/assignments
 Examination Conventions: [https://canvas.ox.ac.uk/courses/281159/pages/mbiol-exam-conventions?module_item_id=2751673](https://canvas.ox.ac.uk/courses/281159/pages/mbiol-exam-conventions?module_item_id=2751673)
