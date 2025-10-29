@@ -28,30 +28,6 @@ By the end of this practical you will be able to:
 - Fit, evaluate, and map a simple species distribution model
 - Make a basic future-climate projection and interpret range change
 
-
-# What you'll need
-
-A working R installation (R >= 4.0) and the packages listed below. You only need to install packages once; subsequent runs will load the cached versions.
-
-```{r install-packages, eval=FALSE}
-# Run once to install packages
-install.packages(c(
-  "dplyr",
-  "ggplot2",
-  "sysfonts", 
-  "showtext",
-  "here", 
-  "terra", 
-  "geodata", 
-  "rnaturalearth", 
-  "rnaturalearthdata",
-  "dismo", 
-  "tidyverse", 
-  "rgbif", 
-  "raster" 
-))
-```
-
 # Part 1 — Project setup
 
 Create a robust project structure and load packages.
