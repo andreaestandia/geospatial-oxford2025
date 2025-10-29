@@ -422,7 +422,7 @@ model1 <- glm(presence ~ bio1 + bio12 + bio7, data = train, family = binomial)
 **Question:** Which variables significantly predict presence? What does it mean biologically?
 
 ## 5.3 Evaluate the models (AUC, ROC)
-This step evaluates how well the model distinguishes between suitable (presence) and unsuitable (background/pseudo-absence) environments. The dataset is split into training (70%) and testing (30%) subsets to assess the model’s predictive performance on unseen data.
+This step evaluates how well the model distinguishes between suitable (presence) and unsuitable (background/pseudo-absence) environments. 
 
 We use two key metrics:
 
@@ -464,7 +464,7 @@ Important considerations for model selection:
 * Think about your aims: do you want to predict well, or understand the underlying biology?
 * The more variables you test, the more likely you are to overfit the observed data, which can lead to poor predictions on new data
 
-**Question**: Which bioclimatic variables do you expect to be most important for Coffea arabica? Does a model including these variables predict distribution better than alternatives?
+**Question**: Which bioclimatic variables do you expect to be most important for *Coffea arabica*? Does a model including these variables predict distribution better than alternatives?
 
 ## 5.5 Predict across the study area
 
