@@ -1,0 +1,704 @@
+---
+title: "Practical: Geospatial methods in R"
+author: "Instructor"
+date: "2025-10-28"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 2
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Introduction
+
+Welcome to this practical on geospatial analysis in **R** for 3rd Year MBiol students. Over the next ~2 hours you'll learn core GIS concepts and apply them to a case study: modelling species distributions for *Coffea arabica* (Arabica coffee). This practical was developed by Andrea Estandia (`andrea.estandia@biology.ox.ac.uk`) and Nilo Merino Recalde (`nilo.recalde@biology.ox.ac.uk`). Based on tutorials from: https://rspatial.org/raster/sdm/
+
+# Learning objectives
+
+By the end of this practical you will be able to:
+
+- Work with vector and raster spatial data (points, polygons, rasters)
+- Inspect and transform Coordinate Reference Systems (CRS)
+- Download and prepare species and environmental data
+- Perform common spatial operations (clip, mask, extract)
+- Fit, evaluate, and map a simple species distribution model
+- Make a basic future-climate projection and interpret range change
+
+
+# What you'll need
+
+A working R installation (R >= 4.0) and the packages listed below. You only need to install packages once; subsequent runs will load the cached versions.
+
+```{r install-packages, eval=FALSE}
+# Run once to install packages
+install.packages(c(
+  "dplyr",
+  "ggplot2",
+  "sysfonts", 
+  "showtext",
+  "here", 
+  "terra", 
+  "geodata", 
+  "rnaturalearth", 
+  "rnaturalearthdata",
+  "dismo", 
+  "tidyverse", 
+  "rgbif", 
+  "raster" 
+))
+```
+
+# Part 1 — Project setup
+
+Create a robust project structure and load packages.
+
+```{r setup, echo=TRUE}
+library(dplyr)
+library(here)
+library(ggplot2)
+library(terra)
+library(geodata)
+library(rnaturalearth)
+library(dismo)
+library(tidyverse)
+library(rgbif)
+library(sysfonts)
+library(showtext)
+
+# Create folders
+folders <- c("data/raw", "data/processed", "outputs/maps", "outputs/models")
+for (f in folders) {
+  dir.create(here(f), recursive = TRUE, showWarnings = FALSE)
+}
+```
+
+**Why structure your project?** reproducibility, easy sharing, and avoiding accidental modification of raw data.
+
+# Part 2 — Spatial data types and CRS
+
+## 2.1 Vector: points, polygons
+
+Create example sampling sites and convert to an `sf` object.
+
+```{r vectors}
+sampling_sites <- tibble(
+  site_id = 1:5,
+  lon = c(-1.5, -1.3, -1.7, -1.4, -1.6),
+  lat = c(51.5, 51.6, 51.4, 51.55, 51.45),
+  species_count = c(12, 8, 15, 10, 13)
+)
+
+sites_vect <- vect(sampling_sites, geom = c("lon", "lat"), crs = "EPSG:4326")
+print(sites_vect)
+```
+
+**Task 1**: Explore the `sites_vect` object and get familiarised with each component.
+
+Load country polygons and plot a quick map.
+
+```{r polygons}
+# Load world polygons
+world_sf <- ne_countries(returnclass = "sf")
+world <- vect(world_sf)
+
+# Filter UK and transform
+uk <- world[world$name == "United Kingdom", ]
+uk <- project(uk, "EPSG:4326")
+print(uk)
+
+plot(uk, col = "#fdde9cff")
+plot(sites_vect, add = TRUE, pch = 16, col = "red", cex = 1.5)
+```
+
+**Task 2**: Explore the `uk` object and get familiarised with each component.
+
+## 2.2 CRS — why it matters
+
+All spatial data must have a coordinate reference system (CRS) which is a framework used to precisely measure locations on the surface of Earth as coordinates. If two layers have different CRSs you will misalign layers when overlaying, measuring distances, or extracting raster values.
+
+```{r crs-transform}
+# Check CRS
+crs(sites_vect)
+
+# Transform to British National Grid (EPSG:27700)
+sites_bng <- project(sites_vect, "EPSG:27700")
+crds(sites_bng)[1:2, ]
+```
+
+Let's now explore how choice of CRS affects distance calculations
+```{r crs-transform}
+# Create two points: Oxford and Cambridge
+oxford <- vect(data.frame(lon = -1.2577, lat = 51.7520), 
+               geom = c("lon", "lat"), crs = "EPSG:4326")
+cambridge <- vect(data.frame(lon = 0.1218, lat = 52.2053), 
+                  geom = c("lon", "lat"), crs = "EPSG:4326")
+
+# Calculate distance in WGS84 (lat/lon) - uses great circle distance
+dist_wgs84 <- distance(oxford, cambridge)
+cat("Distance in WGS84 (metres):", round(dist_wgs84), "\n")
+
+# Transform to British National Grid (projected CRS, meters)
+oxford_bng <- project(oxford, "EPSG:27700")
+cambridge_bng <- project(cambridge, "EPSG:27700")
+dist_bng <- distance(oxford_bng, cambridge_bng)
+cat("Distance in BNG (metres):", round(dist_bng), "\n")
+
+# Transform to Web Mercator (commonly used for web maps)
+oxford_merc <- project(oxford, "EPSG:3857")
+cambridge_merc <- project(cambridge, "EPSG:3857")
+dist_merc <- distance(oxford_merc, cambridge_merc)
+cat("Distance in Web Mercator (metres):", round(dist_merc), "\n")
+
+# Show coordinate values in different systems
+cat("\nOxford coordinates:\n")
+cat("  WGS84 (lon, lat):", crds(oxford), "\n")
+cat("  BNG (easting, northing):", crds(oxford_bng), "\n")
+cat("  Web Mercator (x, y):", crds(oxford_merc), "\n")
+```
+
+**Question**: Which CRS gives the most accurate distance for UK locations? Why?
+
+## 2.3 Raster basics
+
+Create a small example raster. Rasters represent data that vary continuously across space. Each cell (pixel) stores a numeric value for that location — just like pixels in a photo store color values. Common examples include environmental data, elevation, vegetation indices or satellite images.
+
+```{r raster-example}
+# Define a small bounding box around the sites
+bbox <- ext(sites_vect)
+# add a little buffer
+buf <- 0.2
+bbox <- bbox + buf
+
+# create a terra raster with WGS84 (EPSG:4326)
+r <- rast(nrows = 10, ncols = 10, extent = bbox, crs = "EPSG:4326")
+# Generate random values between 0 and 100
+values(r) <- runif(ncell(r), 0, 100)  
+print(r)
+```
+
+**Task 3**: Explore the structure of object `r`.
+
+## 2.4 Plotting
+
+Now we're going to plot the three types of object we have generated: a polygon (UK map), points (species counts), and a raster (environmental data).
+
+```{r plotting-example}
+# Convert the raster to dataframe for plotting
+r_df <- as.data.frame(r, xy = TRUE)
+colnames(r_df)[3] <- "value"
+
+# Extract coordinates and attributes from terra objects
+uk_coords <- as.data.frame(geom(uk)[, c("x", "y")])
+sites_coords <- as.data.frame(crds(sites_vect))
+sites_data <- as.data.frame(sites_vect)
+
+ggplot() +
+  geom_polygon(data = uk_coords, aes(x = x, y = y), 
+               fill = "#fdde9cff", col = "#fdde9cff") +
+  geom_raster(data = r_df, aes(x = x, y = y, fill = value), alpha = 0.8) +
+  geom_point(data = cbind(sites_coords, sites_data), 
+             aes(x = x, y = y, size = species_count), color = "red") +
+  scale_fill_viridis_c(option = "viridis") +
+  labs(title = "Vectors, polygons, and rasters: UK example",
+       fill = "Raster value",
+       size = "Species count") +
+  coord_fixed() +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+```
+
+
+# Part 3 — Species data: download & clean
+
+We'll work with *Coffea arabica* occurrences. 
+
+> **Important:** Because GBIF downloads can be large, we're going to download the file from `Canvas` or `https://github.com/andreaestandia/geospatial-oxford2025.git/data/raw/coffea_arabica.rds` and place it in `data/raw`. If you don't have this file in that folder, it will download it for you, but take into account that this might be slow.
+
+```{r gbif-download}
+sp_file <- here(file.path("data", "raw", "coffea_arabica.rds"))
+
+if (!file.exists(sp_file)) {
+  message("Downloading occurrences from GBIF (may take a minute)...")
+  # Limit the download to 10000 data points 
+  occ <- occ_search(scientificName = "Coffea arabica", hasCoordinate = TRUE, limit = 10000)
+  occ_df <- occ$data
+  saveRDS(occ_df, sp_file)
+} else {
+  occ_df <- readRDS(sp_file)
+}
+
+nrow(occ_df)
+colnames(occ_df)
+```
+
+### 3.1 Extract & clean coordinates
+
+```{r coord-clean}
+coords <- occ_df %>% 
+          dplyr::select(decimalLongitude, decimalLatitude) %>% 
+          rename(lon = decimalLongitude, lat = decimalLatitude)
+
+coords <- na.omit(coords)
+cat("Records with coordinates:", nrow(coords), "\n")
+
+# Quick global plot
+plot(world, col = "#fcfbe3")
+points(coords$lon, coords$lat, pch = 16, cex = 0.8, col = "red")
+```
+
+### 3.2 Clip to study region (Africa)
+
+```{r clip-africa}
+coords_af <- coords %>% 
+      filter(lon >= -20, lon <= 55, lat >= -40, lat <= 40)
+cat("Records in Africa:", nrow(coords_af), "\n")
+
+# Create extent for Africa region
+africa_ext <- ext(-20, 55, -40, 40)
+
+plot(world, ext = africa_ext, col = "#faf6e6")
+points(coords_af$lon, coords_af$lat, pch = 16, cex = 1, col = "red")
+```
+
+### 3.3 Remove ocean points
+
+Why remove ocean points? Some occurrences fall in the sea due to reporting errors. We remove points that intersect ocean polygons. First, you will download the ocean polygons and store them in `data/raw`.
+
+```{r remove-ocean}
+# Download the data
+ocean_data_dir <- here("data", "raw", "ocean")
+if (!dir.exists(ocean_data_dir)) dir.create(ocean_data_dir)
+URL <- "https://naturalearth.s3.amazonaws.com/110m_physical/ne_110m_ocean.zip"
+zip_file <- file.path(ocean_data_dir, basename(URL))
+if (!file.exists(zip_file)) {
+    download.file(URL, zip_file)
+}
+
+files <- unzip(zip_file, exdir = ocean_data_dir)
+
+# Find the shapefile (.shp)
+shp_file <- files[grepl("\\.shp$", files)]
+
+# Read with terra
+ocean <- vect(shp_file)
+
+# Convert coordinates to SpatVector
+species_vect <- vect(coords_af, geom = c("lon", "lat"), crs = "EPSG:4326")
+
+# Make sure CRS matches oceans
+crs(species_vect) <- crs(ocean)
+
+# Identify which points intersect with ocean polygons
+intersections <- relate(species_vect, ocean, relation = "intersects")
+
+# `relate()` returns a logical matrix; determine which points intersect
+is_ocean <- apply(intersections, 1, any)
+
+# Keep only points that do NOT intersect with ocean
+species_land_vect <- species_vect[!is_ocean, ]
+
+# Convert back to data.frame of coordinates
+species.coords <- as.data.frame(geom(species_land_vect)[, c("x", "y")])
+colnames(species.coords) <- c("lon", "lat")
+
+# Plot results
+plot(world, ext = africa_ext, col = "#faf6e6")
+points(species_land_vect, pch = 16, cex = 1, col = "red")
+```
+
+
+# Part 4 — Environmental data & raster ops
+
+## 4.1 Download WorldClim bioclim variables
+
+WorldClim is a global climate database providing gridded climate data (temperature, precipitation, etc.) derived from weather stations.
+
+You’re using 19 bioclimatic (“bio”) variables that summarise key aspects of climate — such as averages, seasonality, and extremes — that are biologically meaningful and commonly used in ecological and species distribution modelling. You can find out what each variable means here: https://www.worldclim.org/data/bioclim.html
+
+We will download a moderate-resolution set (10 arc-minute for speed). Files will be stored in `data/raw`. 
+
+```{r worldclim}
+bioclim_dir <- here("data", "raw", "worldclim")
+if (!dir.exists(bioclim_dir)) dir.create(bioclim_dir)
+
+# geodata::worldclim_global returns a SpatRaster stack
+bioclim <- worldclim_global(var = "bio", res = 10, path = bioclim_dir)
+names(bioclim) <- paste0("bio", 1:19)
+bioclim
+```
+
+## 4.2 Crop to study extent and visualise
+
+We apply a buffer (±5 degrees) around the species’ occurrence points to define a broader study area. This ensures that when you crop the climate data, you capture not only where the species is found but also nearby environments — useful for modelling potential distributions and avoiding edge effects.
+
+```{r crop-visualise}
+# Define study extent with a buffer
+xy <- crds(species_land_vect)
+study_ext <- ext(min(xy[,1]) - 5, max(xy[,1]) + 5, min(xy[,2]) - 5, max(xy[,2]) + 5)
+bioclim_crop <- crop(bioclim, study_ext)
+
+par(mfrow = c(2,1))
+plot(bioclim_crop[[1]], main = "bio1: Annual Mean Temperature")
+points(species_land_vect, pch = 16, cex = 1, col = "red")
+plot(bioclim_crop[[12]], main = "bio12: Annual Precipitation")
+points(species_land_vect, pch = 16, cex = 1, col = "red")
+dev.off()
+```
+
+## 4.3 Extract raster values at occurrence points
+
+```{r extract-values}
+# Ensure point CRS matches rasters (should already match, but confirm)
+species_pts <- project(species_land_vect, crs(bioclim_crop))
+
+# Extract climate values at points
+clim_vals <- terra::extract(bioclim_crop, species_pts)
+
+# Combine coordinates with climate values
+species_data <- bind_cols(
+  as_tibble(crds(species_pts)) %>% rename(lon = x, lat = y),
+  as_tibble(clim_vals)[,-1]
+) %>% drop_na()
+
+cat("Final dataset rows:", nrow(species_data), "\n")
+head(species_data)
+# Save processed data
+write_csv(species_data, file.path("data", "processed", "coffea_arabica_processed.csv"))
+```
+
+
+# Part 5 — Species distribution modelling
+
+We use a simple Generalised Linear Model but there are many alternatives (GAM, Random Forest, MaxEnt...).
+
+## 5.1 Create background (pseudo-absence) points
+
+We will build a model to predict species presence (1) or absence (0) using bioclimatic variables. However, we don’t have true absence data—locations where we are certain the species is not present. Without absence data, the model cannot distinguish between areas where the species might be absent and areas we simply haven’t surveyed. To address this, we generate "pseudo-absence" data by sampling random background points from the region, assuming these locations represent areas where the species is unlikely to occur. Pseudo-absence is essential because it provides a contrast to presence data, allowing the model to learn patterns associated with species occurrence.
+
+```{r background}
+# Sample random background points from the study extent
+set.seed(123)
+n_bg <- 500
+bg_pts <- spatSample(bioclim_crop[[1]], size = n_bg, method = "random", 
+                      na.rm = TRUE, as.points = TRUE, values = FALSE)
+
+bg_coords <- as.data.frame(crds(bg_pts))
+colnames(bg_coords) <- c("lon", "lat")
+
+# Extract environmental values for background
+bg_clim <- terra::extract(bioclim_crop, bg_pts)
+
+background_data <- bind_cols(
+  bg_coords,
+  as_tibble(bg_clim)[,-1]
+) %>% drop_na()
+
+cat("Background points (after NA removal):", nrow(background_data), "\n")
+
+# Quick visualisation
+plot(bioclim_crop[[1]])
+points(background_data$lon, background_data$lat, pch = 16, col = "blue", cex = 1)
+points(species_data$lon, species_data$lat, pch = 16, col = "red", cex = 1)
+```
+
+**Question:** What are the limitations of using random background points? (Think about sampling bias and non-targeted absences.)
+
+
+## 5.2 Prepare training table and fit a GLM
+
+Now we are ready to fit a logistic regression to predict presence/absence. We use a general linear model assuming binomial errors, which is appropriate for modelling a binary Y variable of 0s and 1s. More on this in Year 2 lecture Analysis of associations Part III: Non-Linear Regression Bonsall, Michael, and in Year 4!
+
+We chose bio1 (Annual Mean Temperature), bio12 (Annual Precipitation), and bio7 (Temperature Annual Range) because they capture the important climatic factors that typically influence species distributions: bio1 represents overall thermal conditions,
+bio12 reflects water availability, and bio7 describes temperature variability or seasonality.
+
+```{r prepare-fit}
+# Split presence data
+pres_idx <- sample(nrow(species_data), size = floor(0.7 * nrow(species_data)))
+train_pres <- species_data[pres_idx, ]
+test_pres  <- species_data[-pres_idx, ]
+
+# Split background data
+bg_idx <- sample(nrow(background_data), size = floor(0.7 * nrow(background_data)))
+train_bg <- background_data[bg_idx, ]
+test_bg  <- background_data[-bg_idx, ]
+
+# Combine for training
+train <- bind_rows(
+  train_pres %>% dplyr::select(starts_with("bio")) %>% mutate(presence = 1),
+  train_bg %>% dplyr::select(starts_with("bio")) %>% mutate(presence = 0)
+)
+
+# Fit model *only on training data*
+model1 <- glm(presence ~ bio1 + bio12 + bio7, data = train, family = binomial)
+```
+
+**Question:** Which variables significantly predict presence? What does it mean biologically?
+
+## 5.3 Evaluate the models (AUC, ROC)
+This step evaluates how well the model distinguishes between suitable (presence) and unsuitable (background/pseudo-absence) environments. The dataset is split into training (70%) and testing (30%) subsets to assess the model’s predictive performance on unseen data.
+
+We use two key metrics:
+
+-ROC curve (Receiver Operating Characteristic): shows the trade-off between true positives and false positives across different thresholds.
+-AUC (Area Under the Curve): summarizes the ROC; values range from 0.5 (no better than random) to 1.0 (perfect discrimination).
+
+A higher AUC means the model reliably distinguishes where the species is likely present versus absent — a crucial check before interpreting or mapping predictions.
+
+```{r model-eval}
+# Evaluate on held-out test data
+eval_res <- evaluate(
+  p = test_pres %>% dplyr::select(bio1, bio12, bio7),
+  a = test_bg %>% dplyr::select(bio1, bio12, bio7),
+  model = model1
+)
+plot(eval_res, "ROC")
+cat("AUC:", eval_res@auc, "\n")
+```
+
+## 5.4 Comparing alternative models
+
+```{r compare-models}
+# Fit an alternative model with more climatic variables
+model2 <- glm(presence ~ bio1 + bio2 + bio3 + bio4 + bio5 + bio6 + bio7 + bio8 + bio9 + bio10 + bio11 + bio12, data = train, family = binomial)
+summary(model2)
+
+# Compare models using Akaike Information Criterion (AIC)
+aic_comparison <- AIC(model1, model2)
+print(aic_comparison)
+
+cat("- AIC difference:", abs(diff(aic_comparison$AIC)), "\n")
+```
+
+Important considerations for model selection:
+
+* AIC helps compare model fit vs complexity (lower = more parsimonious)
+* While differences >2 units suggest meaningful differences between models, model selection should be guided by theory and research questions, not just by AIC or p-values
+* Consider multiple evaluation metrics and use cross-validation when possible
+* Think about your aims: do you want to predict well, or understand the underlying biology?
+* The more variables you test, the more likely you are to overfit the observed data, which can lead to poor predictions on new data
+
+**Question**: Which bioclimatic variables do you expect to be most important for Coffea arabica? Does a model including these variables predict distribution better than alternatives?
+
+## 5.5 Predict across the study area
+
+```{r predict-map}
+pred_vars <- c("bio1", "bio12", "bio7")
+
+# Ensure raster has those layers
+if (!all(pred_vars %in% names(bioclim_crop))) {
+  stop("One or more predictor layers not found in bioclim_crop: ", paste(pred_vars, collapse = ", "))
+}
+
+# Predict probability of occurrence across the study extent
+prediction <- terra::predict(bioclim_crop[[pred_vars]], model1, type = "response")
+names(prediction) <- "suitability"
+
+# Quick plot: continuous suitability
+plot(prediction, main = "Predicted suitability (probability)")
+points(species_land_vect, pch = 16, col = "red", cex = 1)
+
+# Choose a threshold to convert probability -> presence/absence
+thr <- dismo::threshold(eval_res, 'prevalence')
+
+# Binary map (presence/absence)
+prediction_pa <- prediction > thr
+plot(prediction_pa, main = paste0("Predicted presence/absence (thr = ", round(thr, 3), ")"))
+points(species_land_vect, pch = 16, col = "red", cex = 1)
+```
+
+
+# Part 6 — Climate change projection 
+
+Download a CMIP6 projection and repeat predictions.
+```{r future, eval=FALSE}
+# Example using geodata::cmip6_world (may take time and requires internet)
+future <- cmip6_world(model = "CanESM5", var = "bio", ssp = "245", res = 10, 
+                      time = "2061-2080", path = here("data/raw"))
+future_crop <- crop(future, study_ext)
+
+# Standardize names
+names(future_crop) <- gsub("bio0", "bio", names(future_crop))
+
+# Predict with the same model (ensure variables match)
+future_pred <- terra::predict(future_crop[[c("bio1", "bio12", "bio7")]], model1, type = "response")
+names(future_pred) <- "suitability"
+
+# Convert to presence/absence with threshold
+future_pa <- future_pred > thr
+
+# Compare maps (present vs future)
+par(mfrow = c(1, 2))
+plot(prediction, main = "Present suitability")
+plot(future_pred, main = "Future suitability")
+
+# Quantify range change at current occurrence sites
+cur_vals <- terra::extract(prediction, species_land_vect)[, 2]
+fu_vals <- terra::extract(future_pred, species_land_vect)[, 2]
+cur_bin <- cur_vals >= thr
+fu_bin <- fu_vals >= thr
+range_loss <- sum(cur_bin & !fu_bin, na.rm = TRUE)
+range_gain <- sum(!cur_bin & fu_bin, na.rm = TRUE)
+
+cat("Sites losing suitability:", range_loss, "\n")
+cat("Sites gaining suitability:", range_gain, "\n")
+```
+
+
+# Part 7 - How to create pretty maps
+Creating pretty maps is highly subjective — but there are a few tricks that can help.  
+We can adjust fonts, move legends, and change color palettes depending on the type of data we have.  
+The following code demonstrates how to refine the visual appearance of our species suitability map.
+
+First, we're going to get the data ready
+```{r export-raster}
+# Convert prediction raster to dataframe
+pred_df <- as.data.frame(prediction, xy = TRUE)
+colnames(pred_df) <- c("lon", "lat", "suitability")
+
+# Get Africa countries for context
+africa_countries <- crop(world, africa_ext)
+
+# Extract polygon coordinates for ggplot
+africa_df <- as.data.frame(geom(africa_countries)[, c("geom", "part", "x", "y", "hole")])
+
+# Get occurrence points as dataframe
+occ_df <- as.data.frame(crds(species_land_vect))
+colnames(occ_df) <- c("lon", "lat")
+
+# We're now cropping the map by computing data extent from pred_df (only where suitability is present)
+lon_vals <- pred_df$lon[!is.na(pred_df$suitability)]
+lat_vals <- pred_df$lat[!is.na(pred_df$suitability)]
+
+lon_range <- range(lon_vals, na.rm = TRUE)
+lat_range <- range(lat_vals, na.rm = TRUE)
+
+# Add a small padding (3% of the span) so features don't touch edges
+lon_pad <- diff(lon_range) * 0.03
+lat_pad <- diff(lat_range) * 0.03
+
+xlim_crop <- c(lon_range[1] - lon_pad, lon_range[2] + lon_pad)
+ylim_crop <- c(lat_range[1] - lat_pad, lat_range[2] + lat_pad)
+
+# Filter africa_df to sub-Saharan and to the cropped extent
+# We exclude y >= 15 (northern Africa / Spain polygon),
+# and limit polygons to the map crop to avoid drawing outside the data extent.
+africa_df_ss <- subset(africa_df,
+                       y < 15 & # keep sub-Saharan (adjust if desired)
+                       x >= xlim_crop[1] & x <= xlim_crop[2] &
+                       y >= ylim_crop[1] & y <= ylim_crop[2])
+```
+
+Then we proceed to build our map
+```{r map}
+# We're going to use a different font. In this case, we've chosen Roboto Condensed from Google Fonts
+font_add_google(name = "Roboto Condensed", family = "RobotoCondensed")
+showtext_auto()
+
+# Build the map
+pretty_map <- ggplot() +
+  # Add country boundaries (filtered)
+  geom_polygon(
+    data = africa_df_ss,
+    aes(x = x, y = y, group = interaction(geom, part)),
+    fill = "grey95", color = "grey70", linewidth = 0.3
+  ) +
+  # Add suitability raster (plot only points within crop to be safe)
+  geom_raster(
+    data = subset(pred_df, lon >= xlim_crop[1] & lon <= xlim_crop[2] &
+                         lat >= ylim_crop[1] & lat <= ylim_crop[2]),
+    aes(x = lon, y = lat, fill = suitability)
+  ) +
+  # Add occurrence points (only those inside crop)
+  # geom_point(
+  #  data = subset(occ_df, lon >= xlim_crop[1] & lon <= xlim_crop[2] &
+  #                       lat >= ylim_crop[1] & lat <= ylim_crop[2]),
+  #  aes(x = lon, y = lat),
+  #  color = "green", size = 2, alpha = 0.6, shape = 16
+  #) +
+  # Color scale
+  scale_fill_viridis_c(
+    option = "inferno",
+    name = "Habitat\nsuitability",
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.2),
+    guide = guide_colorbar(barwidth = 1.5, barheight = 15, title.position = "top")
+  ) +
+  # Labels and theme
+  labs(
+    title = expression(paste("Predicted distribution of ", italic("Coffea arabica"))),
+    subtitle = "Based on bioclimatic variables (bio1, bio7, bio12)",
+    x = "Longitude",
+    y = "Latitude",
+    caption = "Data: GBIF occurrences and WorldClim bioclimatic variables"
+  ) +
+  coord_fixed(ratio = 1, xlim = xlim_crop, ylim = ylim_crop) +
+  theme_minimal(base_size = 12, base_family = "RobotoCondensed") +
+  theme(
+    # Title / subtitle spacing (separate title from subtitle / plot)
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5,
+                              margin = margin(b = 10)),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40",
+                                 margin = margin(b = 8)),
+    plot.caption = element_text(size = 9, color = "grey50", hjust = 1, family = "RobotoCondensed"),
+
+    # Axis title spacing (separate axis titles from axis text / ticks)
+    axis.title.x = element_text(margin = margin(t = 12), size = 11),
+    axis.title.y = element_text(margin = margin(r = 12), size = 11),
+
+    # Remove grid lines and remove coloured panel background
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+
+    # Legend styling
+    legend.position = "right",
+    legend.title = element_text(size = 11, face = "bold", family = "RobotoCondensed"),
+    legend.text = element_text(size = 9, family = "RobotoCondensed")
+  )
+
+# Print the cropped map
+print(pretty_map)
+
+ggsave(file.path("outputs", "maps", "pretty_map.pdf"), 
+       pretty_map, 
+       width = 7, height = 6, dpi = 300, bg = "white")
+```
+
+**Question**: Our points are not shown in this map as those lines of code have been muted. If we were to plot them, what colour palette would be best to use for the map and for the point so they can be seen? What about the size of the points? 
+
+Customising your maps
+Tips for creating effective maps:
+
+1. Color schemes:
+
+* You can use `viridis`, `plasma`, `inferno` for continuous data (colorblind-friendly)
+* You can diverging scales for change maps (e.g., scale_fill_gradient2())
+* Ensure sufficient contrast between foreground and background
+
+2. Layout elements:
+
+* Add informative titles, subtitles, and captions
+* Show units
+* Position legends where they don't obscure important data
+* You can include a scale bar and north arrow for spatial context (see `ggspatial` package)
+
+3. Resolution:
+
+* Use dpi > 300 for publications
+* Use dpi > 150 for presentations
+* Save as PDF for vector graphics, PNG for large files
+
+4. Styling:
+
+* Keep it simple
+* Ensure text is readable
+
+
+---
+
+*End of practical — good luck and happy mapping!*
