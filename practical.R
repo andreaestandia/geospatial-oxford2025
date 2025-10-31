@@ -1,6 +1,5 @@
 # ============================================================================
 # Practical: Geospatial methods in R
-# Author: Instructor
 # Date: 2025-10-28
 # 
 # Developed by Andrea Estandia (andrea.estandia@biology.ox.ac.uk) and 
