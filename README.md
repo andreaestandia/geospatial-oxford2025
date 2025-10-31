@@ -11,7 +11,7 @@
 
 The objective of this practical is to learn how to work with geospatial data in R. You will download species locality data from the Global Biodiversity Information Facility, GBIF (https://www.gbif.org), and environmental data from Worldclim https://www.worldclim.org) and plot them on a map. You will then run models to predict the distribution of the species based on climatic variables. Finally, you will use your model to predict the distribution of the species 70 years from now.
 
-We have provided an R script(`practical.R`) containing code and a setup script (`setup.R`) rather than a glossy set of practical instructions using R Markdown. This is intentional to emulate a common task when using software in research, which is to download scripts from other researchers (e.g. shared on an open source repository like github) and adapt them for your own purposes. The practical is self-contained and provides all the information you need then to tackle the assignment described below for the assessed coursework.
+We have provided an R script(`48383_practical.R`) containing code and a setup script (`48383_setup.R`) rather than a glossy set of practical instructions using R Markdown. This is intentional to emulate a common task when using software in research, which is to download scripts from other researchers (e.g. shared on an open source repository like github) and adapt them for your own purposes. The practical is self-contained and provides all the information you need then to tackle the assignment described below for the assessed coursework.
 
 Don't forget to download the species distribution from the `data/raw` folder in this repository or from `Canvas`.
 
