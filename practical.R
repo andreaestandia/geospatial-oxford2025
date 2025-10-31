@@ -59,8 +59,6 @@ sampling_sites <- tibble(
 
 sites_vect <- vect(sampling_sites, geom = c("lon", "lat"), crs = "EPSG:4326")
 
-class(sites_vect)
-
 print(sites_vect)
 
 # Task 1: Explore the sites_vect object and get familiarised with each component.
@@ -73,8 +71,6 @@ world <- vect(world_sf)
 # Filter UK and transform
 uk <- world[world$name == "United Kingdom", ]
 uk <- project(uk, "EPSG:4326")
-
-print(uk)
 
 print(uk)
 
